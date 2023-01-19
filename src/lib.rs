@@ -205,3 +205,22 @@ fn rsurn(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Environment>()?;
     Ok(())
 }
+
+#[cfg(test)]
+mod test {
+    use crate::*;
+
+    #[test]
+    fn sample_program() {
+        let gene = Gene { rho: 3, nu: 4 };
+        let mut env = Environment::new(gene);
+
+        for _ in 0..1000 {
+            let caller = env.get_caller().unwrap();
+            let callee = env.get_callee(caller).unwrap();
+            let _ = env.interact(caller, callee);
+        }
+
+        assert_eq!(env.history.len(), 1000);
+    }
+}
