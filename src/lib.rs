@@ -186,18 +186,26 @@ impl Environment {
         let recentness = self.recentnesses.get(me).unwrap();
 
         // 計算用にコピーを作成
-        let urn = urn.clone();
-        let recentness = recentness.clone();
+        let mut urn = urn.clone();
+        let mut recentness = recentness.clone();
+
+        // 自分自身と相手自身を取り除く
+        urn.remove(&opponent);
+        urn.remove(&me);
+        recentness.remove(&opponent);
+        recentness.remove(&me);
 
         let mut weights_map = FxHashMap::default();
 
-        let max_friendship = *urn.values().max().unwrap() as f64;
+        let max_friendship = urn.values().fold(f64::NAN, |m, v| (*v as f64).max(m));
         for (agent, weight) in urn {
             *weights_map.entry(agent).or_insert(0.0) +=
                 (weight as f64 / max_friendship) * self.gene.friendship;
         }
 
-        let mut max_recentness = *recentness.values().max().unwrap() as f64;
+        let mut max_recentness = recentness
+            .values()
+            .fold(f64::NAN, |m, v| (*v as f64).max(m));
         if max_recentness == 0.0 {
             max_recentness = 1.0;
         }
@@ -220,11 +228,6 @@ impl Environment {
         }
 
         let mut dist = WeightedIndex::new(weights)?;
-        // 相手に相手自身を紹介しないよう重みを0にする
-        let _ = dist.update_weights(&[(
-            candidates.iter().position(|c| *c == opponent).unwrap(),
-            &0.0,
-        )]);
 
         for _ in 0..(self.gene.nu + 1) {
             let i = dist.sample(&mut rng);
@@ -265,7 +268,121 @@ mod test {
         let gene = Gene {
             rho: 3,
             nu: 4,
+            recentness: 0.5,
+            friendship: 0.5,
+        };
+        let mut env = Environment::new(gene);
+
+        for _ in 0..1000 {
+            let caller = env.get_caller().unwrap();
+            let callee = env.get_callee(caller).unwrap();
+            let _ = env.interact(caller, callee);
+        }
+
+        assert_eq!(env.history.len(), 1000);
+    }
+
+    #[test]
+    fn negative_friendship() {
+        let gene = Gene {
+            rho: 3,
+            nu: 4,
+            recentness: 0.5,
+            friendship: -0.5,
+        };
+        let mut env = Environment::new(gene);
+
+        for _ in 0..1000 {
+            let caller = env.get_caller().unwrap();
+            let callee = env.get_callee(caller).unwrap();
+            let _ = env.interact(caller, callee);
+        }
+
+        assert_eq!(env.history.len(), 1000);
+    }
+
+    #[test]
+    fn negative_recentness() {
+        let gene = Gene {
+            rho: 3,
+            nu: 4,
+            recentness: -0.5,
+            friendship: 0.5,
+        };
+        let mut env = Environment::new(gene);
+
+        for _ in 0..1000 {
+            let caller = env.get_caller().unwrap();
+            let callee = env.get_callee(caller).unwrap();
+            let _ = env.interact(caller, callee);
+        }
+
+        assert_eq!(env.history.len(), 1000);
+    }
+
+    #[test]
+    fn zero_recentness() {
+        let gene = Gene {
+            rho: 3,
+            nu: 4,
             recentness: 0.0,
+            friendship: 0.5,
+        };
+        let mut env = Environment::new(gene);
+
+        for _ in 0..1000 {
+            let caller = env.get_caller().unwrap();
+            let callee = env.get_callee(caller).unwrap();
+            let _ = env.interact(caller, callee);
+        }
+
+        assert_eq!(env.history.len(), 1000);
+    }
+
+    #[test]
+    fn zero_friendship() {
+        let gene = Gene {
+            rho: 3,
+            nu: 4,
+            recentness: 0.5,
+            friendship: 0.0,
+        };
+        let mut env = Environment::new(gene);
+
+        for _ in 0..1000 {
+            let caller = env.get_caller().unwrap();
+            let callee = env.get_callee(caller).unwrap();
+            let _ = env.interact(caller, callee);
+        }
+
+        assert_eq!(env.history.len(), 1000);
+    }
+
+    #[test]
+    fn rho_greater_than_nu() {
+        let gene = Gene {
+            rho: 20,
+            nu: 1,
+            recentness: 0.5,
+            friendship: 0.0,
+        };
+        let mut env = Environment::new(gene);
+
+        for _ in 0..1000 {
+            let caller = env.get_caller().unwrap();
+            let callee = env.get_callee(caller).unwrap();
+            let _ = env.interact(caller, callee);
+        }
+
+        assert_eq!(env.history.len(), 1000);
+    }
+
+    #[test]
+    fn nu_greater_than_rho() {
+        let gene = Gene {
+            rho: 1,
+            nu: 20,
+            recentness: 0.5,
             friendship: 0.0,
         };
         let mut env = Environment::new(gene);
