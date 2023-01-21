@@ -45,7 +45,7 @@ cargo add --git https://github.com/tsukuba-websci/rsurn.git
 ```py
 from rsurn import Gene, Environment
 
-gene = Gene(3, 4) # rho, nu の順に指定
+gene = Gene(3, 4, 0.5, -0.5) # rho, nu, recentness, friendship の順に指定
 env = Environment(gene)
 
 for _ in range(1000):
@@ -60,7 +60,12 @@ print(env.history)
 ### Rust
 
 ```rust
-let gene = Gene { rho: 3, nu: 4 };
+let gene = Gene {
+    rho: 3,
+    nu: 4,
+    recentness: 0.5,
+    friendship: -0.5
+};
 let mut env = Environment::new(gene);
 
 for _ in 0..10000 {
