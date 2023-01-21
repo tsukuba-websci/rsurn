@@ -186,8 +186,8 @@ impl Environment {
         let recentness = self.recentnesses.get(me).unwrap();
 
         // 計算用にコピーを作成
-        let mut urn = urn.clone();
-        let mut recentness = recentness.clone();
+        let urn = urn.clone();
+        let recentness = recentness.clone();
 
         let mut weights_map = FxHashMap::default();
 
