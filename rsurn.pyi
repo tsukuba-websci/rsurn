@@ -3,8 +3,10 @@ from typing import List, Tuple
 class Gene:
     """遺伝子の情報: 環境の振る舞い方を定義する"""
 
-    def __new__(cls: type["Gene"], rho: int, nu: int) -> "Gene":
+    def __new__(cls: type["Gene"], rho: int, nu: int, recentness: float, friendship: float) -> "Gene":
         """遺伝子の情報: 環境の振る舞い方を定義する
+
+        rho, nu は主にモデル全体の挙動を定義し、recentness, friendship はエージェントの振る舞いを定義する。
 
         Parameters
         ----------
@@ -12,6 +14,16 @@ class Gene:
             優先的選択性の強さの度合い。1以上の整数を指定。
         nu : int
             新規性への積極性の度合い。1以上の整数を指定。
+        recentness : float
+            最近やり取りしたエージェントを紹介する度合い。任意の実数を指定。
+            値が大きいほど最近やり取りしたエージェントを高い確立で紹介する。
+            マイナス値の場合、昔やり取りした(最近やり取りしていない)エージェントが優先して紹介される。0の場合ランダム。
+        friendship : float
+            親密なエージェントを紹介する度合い。
+            任意の実数を指定。値が大きいほど親密な(自身の壺に多く含まれる)エージェントを高い確立で紹介する。
+            マイナス値の場合、親密でないエージェントが優先して紹介される。0の場合ランダム。
+
+        recentness, friendship がともに 0 と指定された場合、完全にランダムな挙動となる。
 
         Returns
         -------
