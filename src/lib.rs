@@ -214,6 +214,11 @@ impl Environment {
             weights = weights.iter().map(|w| *w - min_weight).collect();
         }
 
+        // もし全ての重みが0ならば全ての重みを1にする
+        if weights.iter().all(|w| w == &0.0) {
+            weights = vec![1.0; weights.len()];
+        }
+
         let mut dist = WeightedIndex::new(weights)?;
         // 相手に相手自身を紹介しないよう重みを0にする
         let _ = dist.update_weights(&[(
@@ -260,7 +265,7 @@ mod test {
         let gene = Gene {
             rho: 3,
             nu: 4,
-            recentness: 1.0,
+            recentness: 0.0,
             friendship: 0.0,
         };
         let mut env = Environment::new(gene);
