@@ -222,10 +222,14 @@ impl Environment {
             weights = weights.iter().map(|w| *w - min_weight).collect();
         }
 
-        // もし全ての重みが0ならば全ての重みを1にする
-        if weights.iter().all(|w| w == &0.0) {
-            weights = vec![1.0; weights.len()];
-        }
+        // 重みが0は不都合なので小さな正の値にする
+        // ある要素xの重みが1、それ以外の重みが0だった場合、xを選択した時点で全ての重みが0となり実行が止まる
+        // 実際には全重みが0になった場合ランダムに選択して実行を続けたい
+        // 0ではなく10^-10のような非常に小さい値ならば実行は止まらない上、必要なタイミング以外では事実上選択されない
+        weights = weights
+            .iter()
+            .map(|w| if w == &0.0 { 10f64.powf(-10f64) } else { *w })
+            .collect();
 
         let mut dist = WeightedIndex::new(weights)?;
 
@@ -261,6 +265,8 @@ fn rsurn(_py: Python, m: &PyModule) -> PyResult<()> {
 
 #[cfg(test)]
 mod test {
+    use std::collections::HashSet;
+
     use crate::*;
 
     #[test]
@@ -361,9 +367,9 @@ mod test {
     #[test]
     fn rho_greater_than_nu() {
         let gene = Gene {
-            rho: 20,
-            nu: 1,
-            recentness: 0.5,
+            rho: 5,
+            nu: 5,
+            recentness: 1.0,
             friendship: 0.0,
         };
         let mut env = Environment::new(gene);
@@ -394,5 +400,27 @@ mod test {
         }
 
         assert_eq!(env.history.len(), 1000);
+    }
+
+    #[test]
+    fn do_not_recommend_same_agents() {
+        let (rho, nu, recentness, friendship) = (5, 5, 1.0, 0.0);
+        let gene = Gene {
+            rho,
+            nu,
+            recentness,
+            friendship,
+        };
+        let mut env = Environment::new(gene);
+
+        env.interact(1, 10);
+        let (me, opponent) = (1, 11);
+        env.add_novelty(opponent);
+        let recommendees = env.get_recommendees(me, opponent).unwrap();
+
+        let set: HashSet<usize> = HashSet::from_iter(recommendees.clone());
+
+        assert_eq!(set.len(), nu + 1);
+        assert_eq!(recommendees.len(), nu + 1);
     }
 }
