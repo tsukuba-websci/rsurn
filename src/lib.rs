@@ -203,42 +203,30 @@ impl Environment {
                 (weight as f64 / max_friendship) * self.gene.friendship;
         }
 
-        let mut max_recentness = recentness
+        let max_recentness = recentness
             .values()
             .fold(f64::NAN, |m, v| (*v as f64).max(m));
-        if max_recentness == 0.0 {
-            max_recentness = 1.0;
-        }
         for (agent, weight) in recentness {
             *weights_map.entry(agent).or_insert(0.0) +=
                 (weight as f64 / max_recentness) * self.gene.recentness;
         }
 
+        let min_weight = weights_map.values().fold(f64::NAN, |m, v| v.min(m));
+        for w in weights_map.values_mut() {
+            *w += min_weight.abs() + 10f64.powf(-10f64);
+        }
+
         let candidates: Vec<usize> = weights_map.keys().copied().collect();
         let mut weights = Vec::from_iter(weights_map.values().cloned());
 
-        let min_weight = weights.iter().fold(f64::NAN, |m, v| v.min(m));
-        if min_weight < 0.0 {
-            weights = weights.iter().map(|w| *w - min_weight).collect();
-        }
-
-        // 重みが0は不都合なので小さな正の値にする
-        // ある要素xの重みが1、それ以外の重みが0だった場合、xを選択した時点で全ての重みが0となり実行が止まる
-        // 実際には全重みが0になった場合ランダムに選択して実行を続けたい
-        // 0ではなく10^-10のような非常に小さい値ならば実行は止まらない上、必要なタイミング以外では事実上選択されない
-        weights = weights
-            .iter()
-            .map(|w| if w == &0.0 { 10f64.powf(-10f64) } else { *w })
-            .collect();
-
-        let mut dist = WeightedIndex::new(weights)?;
-
         for _ in 0..(self.gene.nu + 1) {
+            let dist = WeightedIndex::new(weights.clone())?;
+
             let i = dist.sample(&mut rng);
             ret.push(candidates[i]);
 
             // 一度選択したものは重みを0にして重複して選択されないようにする
-            let _ = dist.update_weights(&[(i, &0.0)]);
+            weights[i] = 0.0;
         }
 
         Ok(ret)
