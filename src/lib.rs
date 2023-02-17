@@ -155,6 +155,8 @@ impl Environment {
     }
 
     pub fn interact(&mut self, caller: usize, callee: usize) -> Option<()> {
+        let is_first_interaction = !self.recentnesses[caller].contains_key(&callee);
+
         self.history.push((caller, callee));
         *self.recentnesses[caller].entry(callee).or_insert(0) += 1;
         *self.recentnesses[callee].entry(caller).or_insert(0) += 1;
@@ -163,17 +165,23 @@ impl Environment {
             self.add_novelty(callee);
         }
 
-        let caller_recommendees = self.get_recommendees(caller, callee).unwrap();
-        let callee_recommendees = self.get_recommendees(callee, caller).unwrap();
+        // ρ個の交換(毎回実行)
+        *self.weights.entry(caller).or_insert(0) += self.gene.rho;
+        *self.weights.entry(callee).or_insert(0) += self.gene.rho;
 
-        self.urns.add_many(caller, callee_recommendees);
-        self.urns.add_many(caller, vec![callee; self.gene.rho]);
+        if is_first_interaction {
+            let caller_recommendees = self.get_recommendees(caller, callee).unwrap();
+            let callee_recommendees = self.get_recommendees(callee, caller).unwrap();
 
-        self.urns.add_many(callee, caller_recommendees);
-        self.urns.add_many(callee, vec![caller; self.gene.rho]);
+            self.urns.add_many(caller, callee_recommendees);
+            self.urns.add_many(caller, vec![callee; self.gene.rho]);
 
-        *self.weights.entry(caller).or_insert(0) += self.gene.rho + self.gene.nu + 1;
-        *self.weights.entry(callee).or_insert(0) += self.gene.rho + self.gene.nu + 1;
+            self.urns.add_many(callee, caller_recommendees);
+            self.urns.add_many(callee, vec![caller; self.gene.rho]);
+
+            *self.weights.entry(caller).or_insert(0) += self.gene.nu + 1;
+            *self.weights.entry(callee).or_insert(0) += self.gene.nu + 1;
+        }
 
         Some(())
     }
