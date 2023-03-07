@@ -3,6 +3,7 @@ use pyo3::{exceptions::PyValueError, prelude::*};
 use rand::prelude::*;
 use rand_distr::{WeightedError, WeightedIndex};
 
+// todo: Refactor Urns to be a Vector of Agents
 #[derive(Debug)]
 #[pyclass]
 pub struct Urns {
@@ -40,6 +41,25 @@ impl Urns {
 
 #[derive(Debug, Clone)]
 #[pyclass]
+pub struct Agent {
+    pub interactions: FxHashMap<usize, usize>,
+    pub gene: AgentGene,
+}
+
+#[pymethods]
+impl Agent {
+    #[new]
+    fn new() -> Self {
+
+        return Self {
+            interactions: FxHashMap::default(),
+            gene: AgentGene::new(),
+        };
+    }
+}
+
+#[derive(Debug, Clone)]
+#[pyclass]
 pub struct Gene {
     pub rho: usize,
     pub nu: usize,
@@ -56,6 +76,29 @@ impl Gene {
             nu,
             recentness,
             friendship,
+        }
+    }
+}
+
+// Each agent should have a Gene which describes how they interact with others
+// Here I define the AgentGene which we will use to describe how a caller is selected
+// The caller gene will be have a field called sociability which describes how social the agent is from 0 to 1
+// If the agent has a high sociability it is more likely to be selected as a caller
+#[derive(Debug, Clone)]
+#[pyclass]
+pub struct AgentGene {
+    pub sociality: f64,
+}
+
+#[pymethods]
+impl AgentGene {
+    #[new]
+    fn new() -> Self {
+        // For now sociability is just set randomly
+        let mut rng = thread_rng();
+        let random_number: f64 = rng.gen();
+        Self {
+            sociality: random_number,
         }
     }
 }
@@ -129,6 +172,7 @@ impl Environment {
         }
     }
 
+    // todo: update get caller function to selected a caller based on the AgentGene
     pub fn get_caller(&self) -> Result<usize, ProcessingError> {
         let mut rng = thread_rng();
 
