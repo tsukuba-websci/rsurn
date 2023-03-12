@@ -7,23 +7,35 @@ use rand_distr::{WeightedError, WeightedIndex};
 #[derive(Debug)]
 #[pyclass]
 pub struct Urns {
-    pub data: Vec<FxHashMap<usize, usize>>,
+    pub data: Vec<Agent>,
 }
 
+
+// I changed Urns data field
+// from
+// Vec<FxHashMap<usize, usize>>
+// to
+// Vec<Agent>
+// which is a vector of interactions and gene
+
+
 impl Urns {
+    // function to create empty urns
     pub fn new() -> Self {
         return Self { data: vec![] };
     }
 
     pub fn add_urn(&mut self) -> usize {
-        self.data.push(FxHashMap::default());
+        self.data.push(Agent::new());
+        let x = self.data.len() - 1;
+        self.data[x].id = x;
         self.data.len() - 1
     }
 
     pub fn add(&mut self, target_agent_id: usize, added_agent_id: usize) {
         assert_ne!(target_agent_id, added_agent_id);
 
-        *self.data[target_agent_id]
+        *self.data[target_agent_id].interactions
             .entry(added_agent_id)
             .or_insert(0) += 1
     }
@@ -34,7 +46,7 @@ impl Urns {
         }
     }
 
-    pub fn get(&self, agent_id: usize) -> Option<&FxHashMap<usize, usize>> {
+    pub fn get(&self, agent_id: usize) -> Option<&Agent> {
         self.data.get(agent_id)
     }
 }
@@ -42,6 +54,7 @@ impl Urns {
 #[derive(Debug, Clone)]
 #[pyclass]
 pub struct Agent {
+    pub id: usize,
     pub interactions: FxHashMap<usize, usize>,
     pub gene: AgentGene,
 }
@@ -50,8 +63,8 @@ pub struct Agent {
 impl Agent {
     #[new]
     fn new() -> Self {
-
         return Self {
+            id: usize::default(),
             interactions: FxHashMap::default(),
             gene: AgentGene::new(),
         };
@@ -110,7 +123,7 @@ pub struct Environment {
     pub urns: Urns,
 
     /** callerとして選択される可能性のあるエージェント群の (agent_id, weight) の組 */
-    weights: FxHashMap<usize, usize>,
+    pub weights: FxHashMap<usize, usize>,
 
     /** 最近度 */
     recentnesses: Vec<FxHashMap<usize, usize>>,
@@ -189,8 +202,8 @@ impl Environment {
 
         let urn = self.urns.get(caller).unwrap();
 
-        let candidates: Vec<usize> = urn.keys().map(|v| v.to_owned()).collect();
-        let weights = urn.values().map(|v| v.to_owned());
+        let candidates: Vec<usize> = urn.interactions.keys().map(|v| v.to_owned()).collect();
+        let weights = urn.interactions.values().map(|v| v.to_owned());
         let callee = WeightedIndex::new(weights)
             .map(|dist| dist.sample(&mut rng))
             .map(|i| candidates[i])?;
@@ -242,15 +255,15 @@ impl Environment {
         let mut recentness = recentness.clone();
 
         // 自分自身と相手自身を取り除く
-        urn.remove(&opponent);
-        urn.remove(&me);
+        urn.interactions.remove(&opponent);
+        urn.interactions.remove(&me);
         recentness.remove(&opponent);
         recentness.remove(&me);
 
         let mut weights_map = FxHashMap::default();
 
-        let max_friendship = urn.values().fold(f64::NAN, |m, v| (*v as f64).max(m));
-        for (agent, weight) in urn {
+        let max_friendship = urn.interactions.values().fold(f64::NAN, |m, v| (*v as f64).max(m));
+        for (agent, weight) in urn.interactions {
             *weights_map.entry(agent).or_insert(0.0) +=
                 (weight as f64 / max_friendship) * self.gene.friendship;
         }
