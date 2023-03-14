@@ -169,15 +169,15 @@ impl Environment {
         *self.weights.entry(caller).or_insert(0) += self.gene.rho;
         *self.weights.entry(callee).or_insert(0) += self.gene.rho;
 
+        self.urns.add_many(caller, vec![callee; self.gene.rho]);
+        self.urns.add_many(callee, vec![caller; self.gene.rho]);
+
         if is_first_interaction {
             let caller_recommendees = self.get_recommendees(caller, callee).unwrap();
             let callee_recommendees = self.get_recommendees(callee, caller).unwrap();
 
             self.urns.add_many(caller, callee_recommendees);
-            self.urns.add_many(caller, vec![callee; self.gene.rho]);
-
             self.urns.add_many(callee, caller_recommendees);
-            self.urns.add_many(callee, vec![caller; self.gene.rho]);
 
             *self.weights.entry(caller).or_insert(0) += self.gene.nu + 1;
             *self.weights.entry(callee).or_insert(0) += self.gene.nu + 1;
