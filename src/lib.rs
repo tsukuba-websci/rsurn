@@ -3,7 +3,6 @@ use pyo3::{exceptions::PyValueError, prelude::*};
 use rand::prelude::*;
 use rand_distr::{WeightedError, WeightedIndex};
 
-// todo: Refactor Urns to be a Vector of Agents
 #[derive(Debug)]
 #[pyclass]
 pub struct Urns {
