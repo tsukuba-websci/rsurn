@@ -6,10 +6,13 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
 name = "rsurn"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "lib"]
 
 [dependencies]
 pyo3 = { version = "0.17.3", features = ["extension-module"] }
 fxhash = "0.2.1"
 rand = "0.8.5"
 rand_distr = "0.4.3"
+
+[build-dependencies]
+pyo3-build-config = "0.18.1"
