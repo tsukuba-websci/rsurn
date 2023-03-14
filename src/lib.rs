@@ -10,15 +10,6 @@ pub struct Urns {
     pub data: Vec<Agent>,
 }
 
-
-// I changed Urns data field
-// from
-// Vec<FxHashMap<usize, usize>>
-// to
-// Vec<Agent>
-// which is a vector of interactions and gene
-
-
 impl Urns {
     // function to create empty urns
     pub fn new() -> Self {
@@ -93,10 +84,6 @@ impl Gene {
     }
 }
 
-// Each agent should have a Gene which describes how they interact with others
-// Here I define the AgentGene which we will use to describe how a caller is selected
-// The caller gene will be have a field called sociability which describes how social the agent is from 0 to 1
-// If the agent has a high sociability it is more likely to be selected as a caller
 #[derive(Debug, Clone)]
 #[pyclass]
 pub struct AgentGene {
@@ -185,11 +172,13 @@ impl Environment {
         }
     }
 
-    // todo: update get caller function to selected a caller based on the AgentGene
     pub fn get_caller(&self) -> Result<usize, ProcessingError> {
         let mut rng = thread_rng();
 
-        let weights = self.weights.values();
+        // filter so that only agents that have interacted in the past can be callers
+        let  caller_candidates: Vec<Agent> = self.urns.data.clone().into_iter().filter(|agent| !agent.interactions.is_empty()).collect();
+
+        let weights: Vec<f64> = caller_candidates.iter().map(|agent| agent.gene.sociality).collect();
 
         let caller = WeightedIndex::new(weights)
             .map(|dist| self.weights.keys().nth(dist.sample(&mut rng)).unwrap())
