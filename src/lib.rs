@@ -172,7 +172,6 @@ impl Environment {
         self.urns.add_many(caller, vec![callee; self.gene.rho]);
         self.urns.add_many(callee, vec![caller; self.gene.rho]);
 
-
         if is_first_interaction {
             let caller_recommendees = self.get_recommendees(caller, callee).unwrap();
             let callee_recommendees = self.get_recommendees(callee, caller).unwrap();
