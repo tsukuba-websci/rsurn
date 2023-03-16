@@ -108,8 +108,10 @@ impl AgentGene {
         // For now sociability is just set randomly
         let mut rng = thread_rng();
         Self {
-            immediacy: rng.gen(),
-            longevity: rng.gen()
+            // immediacy: rng.gen_range(100..=10000) as f64,
+            // longevity: rng.gen_range(100..=10000) as f64
+            immediacy: rng.gen_range(0.0..=1.0),
+            longevity: rng.gen_range(0.0..=1.0)
         }
     }
 }
@@ -183,27 +185,23 @@ impl Environment {
         }
     }
 
+
     pub fn get_caller(&self) -> Result<usize, ProcessingError> {
+
+        pub fn aging(time: f64, immediacy: f64, longevity: f64) -> f64 {
+            return ( 1.0 / ( (2.0 * std::f64::consts::PI).sqrt() * longevity * time ) ) * (- ((time - immediacy).ln().powi(2)) / (2.0 * longevity.powi(2))).exp();
+        }
+
         let mut rng = thread_rng();
+        let time = self.history.len() as f64 + 1.0;
 
         // filter so that only agents that have interacted in the past can be callers
         let  caller_candidates: Vec<Agent> = self.urns.data.clone().into_iter().filter(|agent| !agent.interactions.is_empty()).collect();
-        let number_caller_candidates: usize = caller_candidates.len();
-
-        // calculate the weights
-        let max_total_interactions: usize = caller_candidates.iter().map(|agent| agent.total_interactions).fold(0, |m, v| (v as usize).max(m));
-        let weight_total_interactions: Vec<f64> = caller_candidates.iter().map(|agent| agent.total_interactions as f64/ max_total_interactions as f64).collect();
 
         let max_unique_interactions: usize = caller_candidates.iter().map(|agent| agent.unique_interactions).fold(0, |m, v| (v as usize).max(m));
-        let weight_unique_interactions: Vec<f64> = caller_candidates.iter().map(|agent| agent.unique_interactions as f64/ max_unique_interactions as f64).collect();
+        let probabilities: Vec<f64> = caller_candidates.iter().map(|agent| (agent.unique_interactions as f64/ max_unique_interactions as f64) * agent.total_interactions as f64 * aging(time, agent.gene.immediacy, agent.gene.longevity) ).collect();
 
-        let mut weights: Vec<f64> = vec![0.0; number_caller_candidates];
-
-        for (i, _caller) in caller_candidates.iter().enumerate() {
-            weights[i] = weight_total_interactions[i] + weight_unique_interactions[i];
-        }
-        
-        let caller = WeightedIndex::new(weights)
+        let caller = WeightedIndex::new(probabilities)
             .map(|dist| self.weights.keys().nth(dist.sample(&mut rng)).unwrap())
             .copied()?;
         Ok(caller)
