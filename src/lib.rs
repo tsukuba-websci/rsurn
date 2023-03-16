@@ -25,9 +25,16 @@ impl Urns {
     pub fn add(&mut self, target_agent_id: usize, added_agent_id: usize) {
         assert_ne!(target_agent_id, added_agent_id);
 
+        // update the all the interactions of agent
         *self.data[target_agent_id].interactions
             .entry(added_agent_id)
-            .or_insert(0) += 1
+            .or_insert(0) += 1;
+
+        // update the total number of interactions
+        self.data[target_agent_id].total_interactions += 1;
+
+        // update the unique number of interactions
+        self.data[target_agent_id].unique_interactions = self.data[target_agent_id].interactions.len();
     }
 
     pub fn add_many(&mut self, target_agent_id: usize, added_agent_ids: Vec<usize>) {
@@ -46,6 +53,8 @@ impl Urns {
 pub struct Agent {
     pub id: usize,
     pub interactions: FxHashMap<usize, usize>,
+    pub total_interactions: usize, // number of interactions/ selections
+    pub unique_interactions: usize, // degree of node
     pub gene: AgentGene,
 }
 
@@ -56,6 +65,8 @@ impl Agent {
         return Self {
             id: usize::default(),
             interactions: FxHashMap::default(),
+            total_interactions: usize::default(),
+            unique_interactions: usize::default(),
             gene: AgentGene::new(),
         };
     }
@@ -63,7 +74,7 @@ impl Agent {
 
 #[derive(Debug, Clone)]
 #[pyclass]
-pub struct Gene {
+pub struct EnvironmentGene {
     pub rho: usize,
     pub nu: usize,
     pub recentness: f64,
@@ -71,7 +82,7 @@ pub struct Gene {
 }
 
 #[pymethods]
-impl Gene {
+impl EnvironmentGene {
     #[new]
     fn new(rho: usize, nu: usize, recentness: f64, friendship: f64) -> Self {
         Self {
@@ -86,7 +97,8 @@ impl Gene {
 #[derive(Debug, Clone)]
 #[pyclass]
 pub struct AgentGene {
-    pub sociality: f64,
+    pub immediacy: f64,
+    pub longevity: f64
 }
 
 #[pymethods]
@@ -95,9 +107,9 @@ impl AgentGene {
     fn new() -> Self {
         // For now sociability is just set randomly
         let mut rng = thread_rng();
-        let random_number: f64 = rng.gen();
         Self {
-            sociality: random_number,
+            immediacy: rng.gen(),
+            longevity: rng.gen()
         }
     }
 }
@@ -105,7 +117,7 @@ impl AgentGene {
 #[derive(Debug)]
 #[pyclass]
 pub struct Environment {
-    gene: Gene,
+    gene: EnvironmentGene,
     pub urns: Urns,
 
     /** callerとして選択される可能性のあるエージェント群の (agent_id, weight) の組 */
@@ -137,7 +149,7 @@ pub struct ProcessingError(WeightedError);
 #[pymethods]
 impl Environment {
     #[new]
-    pub fn new(gene: Gene) -> Self {
+    pub fn new(gene: EnvironmentGene) -> Self {
         let mut urns = Urns::new();
 
         urns.add_urn();
@@ -176,9 +188,21 @@ impl Environment {
 
         // filter so that only agents that have interacted in the past can be callers
         let  caller_candidates: Vec<Agent> = self.urns.data.clone().into_iter().filter(|agent| !agent.interactions.is_empty()).collect();
+        let number_caller_candidates: usize = caller_candidates.len();
 
-        let weights: Vec<f64> = caller_candidates.iter().map(|agent| agent.gene.sociality).collect();
+        // calculate the weights
+        let max_total_interactions: usize = caller_candidates.iter().map(|agent| agent.total_interactions).fold(0, |m, v| (v as usize).max(m));
+        let weight_total_interactions: Vec<f64> = caller_candidates.iter().map(|agent| agent.total_interactions as f64/ max_total_interactions as f64).collect();
 
+        let max_unique_interactions: usize = caller_candidates.iter().map(|agent| agent.unique_interactions).fold(0, |m, v| (v as usize).max(m));
+        let weight_unique_interactions: Vec<f64> = caller_candidates.iter().map(|agent| agent.unique_interactions as f64/ max_unique_interactions as f64).collect();
+
+        let mut weights: Vec<f64> = vec![0.0; number_caller_candidates];
+
+        for (i, _caller) in caller_candidates.iter().enumerate() {
+            weights[i] = weight_total_interactions[i] + weight_unique_interactions[i];
+        }
+        
         let caller = WeightedIndex::new(weights)
             .map(|dist| self.weights.keys().nth(dist.sample(&mut rng)).unwrap())
             .copied()?;
@@ -299,7 +323,7 @@ impl Environment {
 #[pymodule]
 fn rsurn(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Urns>()?;
-    m.add_class::<Gene>()?;
+    m.add_class::<EnvironmentGene>()?;
     m.add_class::<Environment>()?;
     Ok(())
 }
@@ -312,7 +336,7 @@ mod test {
 
     #[test]
     fn sample_program() {
-        let gene = Gene {
+        let gene = EnvironmentGene {
             rho: 3,
             nu: 4,
             recentness: 0.5,
@@ -331,7 +355,7 @@ mod test {
 
     #[test]
     fn negative_friendship() {
-        let gene = Gene {
+        let gene = EnviornmentGene {
             rho: 3,
             nu: 4,
             recentness: 0.5,
@@ -350,7 +374,7 @@ mod test {
 
     #[test]
     fn negative_recentness() {
-        let gene = Gene {
+        let gene = EnviornmentGene {
             rho: 3,
             nu: 4,
             recentness: -0.5,
@@ -369,7 +393,7 @@ mod test {
 
     #[test]
     fn zero_recentness() {
-        let gene = Gene {
+        let gene = EnviornmentGene {
             rho: 3,
             nu: 4,
             recentness: 0.0,
@@ -407,7 +431,7 @@ mod test {
 
     #[test]
     fn rho_greater_than_nu() {
-        let gene = Gene {
+        let gene = EnviornmentGene {
             rho: 5,
             nu: 5,
             recentness: 1.0,
@@ -426,7 +450,7 @@ mod test {
 
     #[test]
     fn nu_greater_than_rho() {
-        let gene = Gene {
+        let gene = EnviornmentGene {
             rho: 1,
             nu: 20,
             recentness: 0.5,
@@ -446,7 +470,7 @@ mod test {
     #[test]
     fn do_not_recommend_same_agents() {
         let (rho, nu, recentness, friendship) = (5, 5, 1.0, 0.0);
-        let gene = Gene {
+        let gene = EnviornmentGene {
             rho,
             nu,
             recentness,
