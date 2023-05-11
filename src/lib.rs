@@ -185,7 +185,6 @@ impl Environment {
         }
     }
 
-
     pub fn get_caller(&self) -> Result<usize, ProcessingError> {
 
         pub fn aging(time: f64, immediacy: f64, longevity: f64) -> f64 {
