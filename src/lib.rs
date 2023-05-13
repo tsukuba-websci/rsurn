@@ -222,7 +222,6 @@ impl Environment {
 
     pub fn interact(&mut self, caller: usize, callee: usize) -> Option<()> {
         let is_first_interaction = !self.recentnesses[caller].contains_key(&callee);
-
         self.history.push((caller, callee));
         *self.recentnesses[caller].entry(callee).or_insert(0) += 1;
         *self.recentnesses[callee].entry(caller).or_insert(0) += 1;
