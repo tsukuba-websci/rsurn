@@ -98,20 +98,19 @@ impl EnvironmentGene {
 #[pyclass]
 pub struct AgentGene {
     pub immediacy: f64,
-    pub longevity: f64
+    pub longevity: f64,
+    pub fitness: f64,
 }
 
 #[pymethods]
 impl AgentGene {
     #[new]
     fn new() -> Self {
-        // For now sociability is just set randomly
         let mut rng = thread_rng();
         Self {
-            // immediacy: rng.gen_range(100..=10000) as f64,
-            // longevity: rng.gen_range(100..=10000) as f64
-            immediacy: rng.gen_range(0.0..=1.0),
-            longevity: rng.gen_range(0.0..=1.0)
+            immediacy: rng.gen_range(0.1..=0.9),
+            longevity: rng.gen_range(0.1..=0.9),
+            fitness: rng.gen_range(10.0..=100.0)
         }
     }
 }
@@ -197,8 +196,7 @@ impl Environment {
         // filter so that only agents that have interacted in the past can be callers
         let  caller_candidates: Vec<Agent> = self.urns.data.clone().into_iter().filter(|agent| !agent.interactions.is_empty()).collect();
 
-        let max_unique_interactions: usize = caller_candidates.iter().map(|agent| agent.unique_interactions).fold(0, |m, v| (v as usize).max(m));
-        let probabilities: Vec<f64> = caller_candidates.iter().map(|agent| (agent.unique_interactions as f64/ max_unique_interactions as f64) * agent.total_interactions as f64 * aging(time, agent.gene.immediacy, agent.gene.longevity) ).collect();
+        let probabilities: Vec<f64> = caller_candidates.iter().map(|agent|  agent.fitness * (agent.total_interactions as f64) * aging(time, agent.gene.immediacy, agent.gene.longevity) ).collect();
 
         let caller = WeightedIndex::new(probabilities)
             .map(|dist| self.weights.keys().nth(dist.sample(&mut rng)).unwrap())
