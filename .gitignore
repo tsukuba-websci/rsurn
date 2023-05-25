@@ -73,5 +73,5 @@ docs/_build/
 
 # Poetry
 poetry.lock
-RustLog.txt
+
 Cargo.lock
