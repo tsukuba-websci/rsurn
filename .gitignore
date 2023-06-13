@@ -73,3 +73,5 @@ docs/_build/
 
 # Poetry
 poetry.lock
+
+Cargo.lock

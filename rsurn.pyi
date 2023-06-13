@@ -1,9 +1,9 @@
 from typing import List, Tuple
 
-class Gene:
+class EnvironmentGene:
     """遺伝子の情報: 環境の振る舞い方を定義する"""
 
-    def __new__(cls: type["Gene"], rho: int, nu: int, recentness: float, friendship: float) -> "Gene":
+    def __new__(cls: type["EnvironmentGene"], rho: int, nu: int, recentness: float, friendship: float) -> "EnvironmentGene":
         """遺伝子の情報: 環境の振る舞い方を定義する
 
         rho, nu は主にモデル全体の挙動を定義し、recentness, friendship はエージェントの振る舞いを定義する。
@@ -37,7 +37,7 @@ class Environment:
     history: List[Tuple[int, int]]
     """生成された (caller, callee) 組の履歴"""
 
-    def __new__(cls: type["Environment"], gene: Gene) -> "Environment":
+    def __new__(cls: type["Environment"], gene: EnvironmentGene) -> "Environment":
         """環境: エージェントが振る舞うプラットフォーム
 
         Parameters
