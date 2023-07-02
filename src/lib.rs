@@ -196,7 +196,8 @@ impl Environment {
         // filter so that only agents that have interacted in the past can be callers
         let  caller_candidates: Vec<Agent> = self.urns.data.clone().into_iter().filter(|agent| !agent.interactions.is_empty()).collect();
 
-        let mut probabilities: Vec<f64> = caller_candidates.clone().iter().map(|agent|  agent.gene.fitness * (agent.total_interactions as f64) * aging(time, agent.gene.immediacy, agent.gene.longevity) ).collect();
+        // let mut probabilities: Vec<f64> = caller_candidates.clone().iter().map(|agent|  agent.gene.fitness * (agent.total_interactions as f64) * aging(time, agent.gene.immediacy, agent.gene.longevity) ).collect();
+        let mut probabilities: Vec<f64> = caller_candidates.clone().iter().map(|agent|  (agent.total_interactions as f64) * aging(time, agent.gene.immediacy, agent.gene.longevity) ).collect();
 
         let min_probability = probabilities.iter().fold(f64::NAN, |m, v| v.min(m));
         for p in probabilities.iter_mut() {
