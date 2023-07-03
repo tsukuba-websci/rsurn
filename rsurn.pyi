@@ -3,7 +3,7 @@ from typing import List, Tuple
 class EnvironmentGene:
     """遺伝子の情報: 環境の振る舞い方を定義する"""
 
-    def __new__(cls: type["EnvironmentGene"], rho: int, nu: int, recentness: float, friendship: float) -> "EnvironmentGene":
+    def __new__(cls: type["EnvironmentGene"], rho: int, nu: int, recentness: float, friendship: float, symmetry: float) -> "EnvironmentGene":
         """遺伝子の情報: 環境の振る舞い方を定義する
 
         rho, nu は主にモデル全体の挙動を定義し、recentness, friendship はエージェントの振る舞いを定義する。
