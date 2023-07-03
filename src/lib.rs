@@ -79,17 +79,19 @@ pub struct EnvironmentGene {
     pub nu: usize,
     pub recentness: f64,
     pub friendship: f64,
+    pub symmetry: f64
 }
 
 #[pymethods]
 impl EnvironmentGene {
     #[new]
-    fn new(rho: usize, nu: usize, recentness: f64, friendship: f64) -> Self {
+    fn new(rho: usize, nu: usize, recentness: f64, friendship: f64, symmetry: f64) -> Self {
         Self {
             rho,
             nu,
             recentness,
             friendship,
+            symmetry,
         }
     }
 }
@@ -227,8 +229,6 @@ impl Environment {
     pub fn interact(&mut self, caller: usize, callee: usize) -> Option<()> {
         let is_first_interaction = !self.recentnesses[caller].contains_key(&callee);
         self.history.push((caller, callee));
-        *self.recentnesses[caller].entry(callee).or_insert(0) += 1;
-        *self.recentnesses[callee].entry(caller).or_insert(0) += 1;
 
         if !self.weights.contains_key(&callee) {
             self.add_novelty(callee);
@@ -250,6 +250,15 @@ impl Environment {
 
             *self.weights.entry(caller).or_insert(0) += self.gene.nu + 1;
             *self.weights.entry(callee).or_insert(0) += self.gene.nu + 1;
+        }
+
+        if self.gene.symmetry < -0.8 {
+            *self.recentnesses[caller].entry(callee).or_insert(0) += 1;
+        } else if self.gene.symmetry > 0.8 {
+            *self.recentnesses[callee].entry(caller).or_insert(0) += 1;
+        } else {
+            *self.recentnesses[caller].entry(callee).or_insert(0) += 1;
+            *self.recentnesses[callee].entry(caller).or_insert(0) += 1;
         }
 
         Some(())
@@ -274,7 +283,9 @@ impl Environment {
 
         let mut weights_map = FxHashMap::default();
 
-        let max_friendship = urn.interactions.values().fold(f64::NAN, |m, v| (*v as f64).max(m));
+        let max_friendship = urn.interactions
+            .values()
+            .fold(f64::NAN, |m, v| (*v as f64).max(m));
         for (agent, weight) in urn.interactions {
             *weights_map.entry(agent).or_insert(0.0) +=
                 (weight as f64 / max_friendship) * self.gene.friendship;
@@ -341,6 +352,7 @@ mod test {
             nu: 4,
             recentness: 0.5,
             friendship: 0.5,
+            symmetry: 0.0,
         };
         let mut env = Environment::new(gene);
 
@@ -360,6 +372,7 @@ mod test {
             nu: 4,
             recentness: 0.5,
             friendship: -0.5,
+            symmetry: 0.0,
         };
         let mut env = Environment::new(gene);
 
@@ -379,6 +392,7 @@ mod test {
             nu: 4,
             recentness: -0.5,
             friendship: 0.5,
+            symmetry: 0.0,
         };
         let mut env = Environment::new(gene);
 
@@ -398,6 +412,7 @@ mod test {
             nu: 4,
             recentness: 0.0,
             friendship: 0.5,
+            symmetry: 0.0,
         };
         let mut env = Environment::new(gene);
 
@@ -417,6 +432,7 @@ mod test {
             nu: 4,
             recentness: 0.5,
             friendship: 0.0,
+            symmetry: 0.0,
         };
         let mut env = Environment::new(gene);
 
@@ -436,6 +452,7 @@ mod test {
             nu: 5,
             recentness: 1.0,
             friendship: 0.0,
+            symmetry: 0.0,
         };
         let mut env = Environment::new(gene);
 
@@ -455,6 +472,7 @@ mod test {
             nu: 20,
             recentness: 0.5,
             friendship: 0.0,
+            symmetry: 0.0,
         };
         let mut env = Environment::new(gene);
 
@@ -469,12 +487,13 @@ mod test {
 
     #[test]
     fn do_not_recommend_same_agents() {
-        let (rho, nu, recentness, friendship) = (5, 5, 1.0, 0.0);
+        let (rho, nu, recentness, friendship, symmetry) = (5, 5, 1.0, 0.0, 0.0);
         let gene = EnviornmentGene {
             rho,
             nu,
             recentness,
             friendship,
+            symmetry
         };
         let mut env = Environment::new(gene);
 
