@@ -252,9 +252,9 @@ impl Environment {
             *self.weights.entry(callee).or_insert(0) += self.gene.nu + 1;
         }
 
-        if self.gene.symmetry < -0.8 {
+        if self.gene.symmetry < -0.3 {
             *self.recentnesses[caller].entry(callee).or_insert(0) += 1;
-        } else if self.gene.symmetry > 0.8 {
+        } else if self.gene.symmetry > 0.3 {
             *self.recentnesses[callee].entry(caller).or_insert(0) += 1;
         } else {
             *self.recentnesses[caller].entry(callee).or_insert(0) += 1;
