@@ -11,16 +11,10 @@ pub struct Urns {
 }
 
 impl Urns {
-    // function to create empty urns
     pub fn new() -> Self {
         return Self { data: vec![] };
     }
 
-    //
-    //  Creates a new urn (agent)
-    //
-    // Returns the id of the newly created agent
-    //
     pub fn create_new_agent(&mut self) -> usize {
         self.data.push(Agent::new());
         let new_agent_id = self.data.len() - 1;
@@ -29,7 +23,6 @@ impl Urns {
     }
 
     pub fn actualise_agent(&mut self,  target_agent_id: usize, added_agent_id: usize) {
-        // verify that the caller and callee are different
         assert_ne!(target_agent_id, added_agent_id);
 
         if let Some((key, value)) = self.data[target_agent_id].adjacent_possible_space.remove_entry(&added_agent_id) {
@@ -37,29 +30,18 @@ impl Urns {
         }
     }
 
-    //
-    // Update the agents actual space
-    //
     pub fn add_to_actual_space(&mut self, target_agent_id: usize, added_agent_id: usize) {
 
-        // verify that the caller and callee are different
         assert_ne!(target_agent_id, added_agent_id);
 
-        // update the all the interactions of agent
         *self.data[target_agent_id].actual_space
             .entry(added_agent_id)
             .or_insert(0) += 1;
 
-        // update the total number of interactions
         self.data[target_agent_id].total_interactions += 1;
-
-        // update the unique number of interactions
         self.data[target_agent_id].unique_interactions = self.data[target_agent_id].actual_space.len();
     }
 
-    //
-    // Update the agents adjacent possible space
-    //
     pub fn add_to_adjacent_possible_space(&mut self, target_agent_id: usize, added_agent_id: usize) {
         assert_ne!(target_agent_id, added_agent_id);
 
@@ -253,15 +235,13 @@ impl Environment {
 
     pub fn interact(&mut self, caller: usize, callee: usize) -> Option<()> {
 
-        // check if this is the first time the caller and callee are interacting
         let is_first_interaction = !self.urns.data[caller].actual_space.contains_key(&callee);
 
-        // add the interaction to the history
         self.history.push((caller, callee));
 
-        // if this is the first time the callee has ever been selected
         if !self.urns.data[callee].interacted {
             self.add_novelty(callee);
+            self.urns.data[callee].interacted = true;
         }
 
         if is_first_interaction {
