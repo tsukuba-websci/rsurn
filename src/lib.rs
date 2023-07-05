@@ -19,17 +19,30 @@ impl Urns {
     //
     //  Creates a new urn (agent)
     //
+    // Returns the id of the newly created agent
+    //
     pub fn create_new_agent(&mut self) -> usize {
         self.data.push(Agent::new());
-        let x = self.data.len() - 1;
-        self.data[x].id = x;
+        let new_agent_id = self.data.len() - 1;
+        self.data[new_agent_id].id = new_agent_id;
         self.data.len() - 1
+    }
+
+    pub fn actualise_agent(&mut self,  target_agent_id: usize, added_agent_id: usize) {
+        // verify that the caller and callee are different
+        assert_ne!(target_agent_id, added_agent_id);
+
+        if let Some((key, value)) = self.data[target_agent_id].adjacent_possible_space.remove_entry(&added_agent_id) {
+            self.data[target_agent_id].actual_space.insert(key, value);
+        }
     }
 
     //
     // Update the agents actual space
     //
     pub fn add_to_actual_space(&mut self, target_agent_id: usize, added_agent_id: usize) {
+
+        // verify that the caller and callee are different
         assert_ne!(target_agent_id, added_agent_id);
 
         // update the all the interactions of agent
@@ -185,7 +198,7 @@ impl Environment {
 
         for agent_id in [0, 1] {
             for _ in 0..(gene.nu + 1) {
-                let i = urns.create_new_agent();
+                let i = urns.create_new_agent(); // new empty urns are added
                 urns.add_to_adjacent_possible_space(agent_id, i);
             }
         }
@@ -223,7 +236,17 @@ impl Environment {
 
         let urn = self.urns.get(caller).unwrap();
 
-        let candidates: Vec<usize> = urn.adjacent_possible_space.keys().map(|v| v.to_owned()).collect();
+        let mut callee_candidate_space: FxHashMap<usize, usize> = FxHashMap::default();
+
+        // Union the actual space and the adjacent possible space
+        callee_candidate_space.extend(&urn.actual_space);
+        callee_candidate_space.extend(&urn.adjacent_possible_space);
+
+        let candidates: Vec<usize> = callee_candidate_space.keys().map(|v| v.to_owned()).collect();
+
+        println!("Candidates: {:?}", candidates);
+
+
         let weights = urn.adjacent_possible_space.values().map(|v| v.to_owned());
         let callee = WeightedIndex::new(weights)
             .map(|dist: WeightedIndex<usize>| dist.sample(&mut rng))
@@ -235,12 +258,11 @@ impl Environment {
     pub fn interact(&mut self, caller: usize, callee: usize) -> Option<()> {
         let is_first_interaction = !self.recentnesses[caller].contains_key(&callee);
         self.history.push((caller, callee));
-
         if !self.weights.contains_key(&callee) {
             self.add_novelty(callee);
         }
 
-        // ρ個の交換(毎回実行)
+        // ρ個の交換(毎回実行) REINFORCEMENT
         *self.weights.entry(caller).or_insert(0) += self.gene.rho;
         *self.weights.entry(callee).or_insert(0) += self.gene.rho;
 
@@ -248,6 +270,11 @@ impl Environment {
         self.urns.add_many_to_adjacent_possible_space(callee, vec![caller; self.gene.rho]);
 
         if is_first_interaction {
+
+            // the callee gets moved the caller agents actual space
+            self.urns.actualise_agent(caller, callee);
+            self.urns.actualise_agent(callee, caller);
+
             let caller_recommendees = self.get_recommendees(caller, callee).unwrap();
             let callee_recommendees = self.get_recommendees(callee, caller).unwrap();
 
