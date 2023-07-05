@@ -69,8 +69,6 @@ impl Urns {
             .or_insert(0) += 1;
     }
 
-
-
     pub fn add_many_to_adjacent_possible_space(&mut self, target_agent_id: usize, added_agent_ids: Vec<usize>) {
         for agent_id in added_agent_ids {
             self.add_to_adjacent_possible_space(target_agent_id, agent_id);
@@ -86,6 +84,7 @@ impl Urns {
 #[pyclass]
 pub struct Agent {
     pub id: usize,
+    pub interacted: bool,
     pub actual_space: FxHashMap<usize, usize>,
     pub adjacent_possible_space: FxHashMap<usize, usize>,
     pub total_interactions: usize, // number of interactions
@@ -99,6 +98,7 @@ impl Agent {
     fn new() -> Self {
         return Self {
             id: usize::default(),
+            interacted: false,
             actual_space: FxHashMap::default(),
             adjacent_possible_space: FxHashMap::default(),
             total_interactions: usize::default(),
@@ -159,9 +159,6 @@ pub struct Environment {
     gene: EnvironmentGene,
     pub urns: Urns,
 
-    /** callerとして選択される可能性のあるエージェント群の (agent_id, weight) の組 */
-    pub weights: FxHashMap<usize, usize>,
-
     /** 最近度 */
     recentnesses: Vec<FxHashMap<usize, usize>>,
 
@@ -193,13 +190,16 @@ impl Environment {
 
         urns.create_new_agent();
         urns.add_to_actual_space(0, 1);
+        urns.data[0].interacted = true;
         urns.create_new_agent();
         urns.add_to_actual_space(1, 0);
+        urns.data[1].interacted = true;
+
 
         for agent_id in [0, 1] {
             for _ in 0..(gene.nu + 1) {
                 let i = urns.create_new_agent(); // new empty urns are added
-                urns.add_to_adjacent_possible_space(agent_id, i);
+                urns.add_to_actual_space(agent_id, i);
             }
         }
 
@@ -217,7 +217,6 @@ impl Environment {
             history: vec![],
             gene,
             urns,
-            weights: candidates,
             recentnesses,
         }
     }
@@ -225,7 +224,7 @@ impl Environment {
     pub fn get_caller(&self) -> Result<usize, ProcessingError> {
         let mut rng = rand::thread_rng();
 
-        let  caller_candidates: Vec<Agent> = self.urns.data.clone().into_iter().filter(|agent| !agent.actual_space.is_empty()).collect();
+        let caller_candidates: Vec<Agent> = self.urns.data.clone().into_iter().filter(|agent| !agent.actual_space.is_empty()).collect();
         let caller: usize = caller_candidates.choose(&mut rng).unwrap().id;
         Ok(caller)
     
@@ -244,10 +243,7 @@ impl Environment {
 
         let candidates: Vec<usize> = callee_candidate_space.keys().map(|v| v.to_owned()).collect();
 
-        println!("Candidates: {:?}", candidates);
-
-
-        let weights = urn.adjacent_possible_space.values().map(|v| v.to_owned());
+        let weights = callee_candidate_space.values().map(|v| v.to_owned());
         let callee = WeightedIndex::new(weights)
             .map(|dist: WeightedIndex<usize>| dist.sample(&mut rng))
             .map(|i| candidates[i])?;
@@ -256,18 +252,17 @@ impl Environment {
     }
 
     pub fn interact(&mut self, caller: usize, callee: usize) -> Option<()> {
-        let is_first_interaction = !self.recentnesses[caller].contains_key(&callee);
+
+        // check if this is the first time the caller and callee are interacting
+        let is_first_interaction = !self.urns.data[caller].actual_space.contains_key(&callee);
+
+        // add the interaction to the history
         self.history.push((caller, callee));
-        if !self.weights.contains_key(&callee) {
+
+        // if this is the first time the callee has ever been selected
+        if !self.urns.data[callee].interacted {
             self.add_novelty(callee);
         }
-
-        // ρ個の交換(毎回実行) REINFORCEMENT
-        *self.weights.entry(caller).or_insert(0) += self.gene.rho;
-        *self.weights.entry(callee).or_insert(0) += self.gene.rho;
-
-        self.urns.add_many_to_adjacent_possible_space(caller, vec![callee; self.gene.rho]);
-        self.urns.add_many_to_adjacent_possible_space(callee, vec![caller; self.gene.rho]);
 
         if is_first_interaction {
 
@@ -280,10 +275,11 @@ impl Environment {
 
             self.urns.add_many_to_adjacent_possible_space(caller, callee_recommendees);
             self.urns.add_many_to_adjacent_possible_space(callee, caller_recommendees);
-
-            *self.weights.entry(caller).or_insert(0) += self.gene.nu + 1;
-            *self.weights.entry(callee).or_insert(0) += self.gene.nu + 1;
         }
+
+        // ρ個の交換(毎回実行) REINFORCEMENT
+        *self.urns.data[caller].actual_space.entry(callee).or_insert(0) += self.gene.rho;
+        *self.urns.data[callee].actual_space.entry(caller).or_insert(0) += self.gene.rho;
 
         if self.gene.symmetry < -0.3 {
             *self.recentnesses[caller].entry(callee).or_insert(0) += 1;
@@ -300,9 +296,7 @@ impl Environment {
     fn get_recommendees(&self, me: usize, opponent: usize) -> Result<Vec<usize>, ProcessingError> {
         let mut rng = thread_rng();
         let mut ret = vec![];
-
-        println!("1");
-
+        
         let urn = self.urns.get(me).unwrap();
         let recentness = self.recentnesses.get(me).unwrap();
 
@@ -311,14 +305,10 @@ impl Environment {
         let mut recentness = recentness.clone();
 
         // 自分自身と相手自身を取り除く
-        println!("2");
-
         urn.actual_space.remove(&opponent);
         urn.actual_space.remove(&me);
         recentness.remove(&opponent);
         recentness.remove(&me);
-
-        println!("3");
 
         let mut weights_map = FxHashMap::default();
 
@@ -329,7 +319,6 @@ impl Environment {
             *weights_map.entry(agent).or_insert(0.0) +=
                 (weight as f64 / max_friendship) * self.gene.friendship;
         }
-        println!("4");
 
         let max_recentness = recentness
             .values()
@@ -346,21 +335,17 @@ impl Environment {
 
         let candidates: Vec<usize> = weights_map.keys().copied().collect();
         let mut weights = Vec::from_iter(weights_map.values().cloned());
-        println!("5");
 
         for _ in 0..(self.gene.nu + 1) {
-            println!("Numbers: {:?}", weights);
             // problem with the weights
             let dist = WeightedIndex::new(weights.clone())?;
 
             let i = dist.sample(&mut rng);
             ret.push(candidates[i]);
-            println!("6");
 
             // 一度選択したものは重みを0にして重複して選択されないようにする
             weights[i] = 0.0;
         }
-        println!("XXX");
 
         Ok(ret)
     }
@@ -368,10 +353,10 @@ impl Environment {
     fn add_novelty(&mut self, agent_id: usize) {
         for _ in 0..(self.gene.nu + 1) {
             let i = self.urns.create_new_agent();
-            self.urns.add_to_adjacent_possible_space(agent_id, i);
+            self.urns.add_to_actual_space(agent_id, i);
+            self.urns.add_to_actual_space(i, agent_id);
             self.recentnesses.push(FxHashMap::default());
         }
-        *self.weights.entry(agent_id).or_insert(0) += self.gene.nu + 1;
     }
 }
 
