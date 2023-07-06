@@ -15,10 +15,14 @@ impl Urns {
         return Self { data: vec![] };
     }
 
-    pub fn create_new_agent(&mut self) -> usize {
+    pub fn create_new_agent(&mut self, created_by: Option<usize>) -> usize {
         self.data.push(Agent::new());
         let new_agent_id = self.data.len() - 1;
         self.data[new_agent_id].id = new_agent_id;
+        if let Some(created_by_id) = created_by {
+            self.add_to_actual_space(new_agent_id, created_by_id);
+            self.add_to_actual_space(created_by_id, new_agent_id);
+        }
         self.data.len() - 1
     }
 
@@ -172,11 +176,11 @@ impl Environment {
     pub fn new(gene: EnvironmentGene) -> Self {
         let mut urns = Urns::new();
 
-        urns.create_new_agent();
-        urns.add_to_adjacent_possible_space(0, 1);
+        urns.create_new_agent(None);
+        urns.add_to_actual_space(0, 1);
         urns.data[0].interacted = true;
-        urns.create_new_agent();
-        urns.add_to_adjacent_possible_space(1, 0);
+        urns.create_new_agent(None);
+        urns.add_to_actual_space(1, 0);
         urns.data[1].interacted = true;
 
 
@@ -184,8 +188,7 @@ impl Environment {
             let mut memory_buffer: Vec<usize> = Vec::new(); // Initialize an empty vector
         
             for _ in 0..(gene.nu + 1) {
-                let i: usize = urns.create_new_agent(); 
-                urns.add_to_actual_space(agent_id, i);
+                let i: usize = urns.create_new_agent(Some(agent_id)); 
                 memory_buffer.push(i);
             }
         
@@ -213,7 +216,7 @@ impl Environment {
     pub fn get_caller(&self) -> Result<usize, ProcessingError> {
         let mut rng = rand::thread_rng();
 
-        let caller_candidates: Vec<Agent> = self.urns.data.clone().into_iter().filter(|agent| !agent.actual_space.is_empty()).collect();
+        let caller_candidates: Vec<Agent> = self.urns.data.clone().into_iter().filter(|agent| agent.interacted).collect();
         let caller: usize = caller_candidates.choose(&mut rng).unwrap().id;
 
         Ok(caller)
@@ -240,26 +243,55 @@ impl Environment {
         Ok(callee)
     }
 
+    pub fn exchange_memory_buffer(&mut self, caller: usize, callee: usize) {
+        self.urns.add_many_to_adjacent_possible_space(caller, {
+            let callee_memory_buffer = &self.urns.data[callee].memory_buffer;
+            let filtered_memory_buffer = callee_memory_buffer
+                .iter()
+                .filter(|&value| *value != caller)
+                .cloned()
+                .collect::<Vec<_>>();
+            filtered_memory_buffer
+        });
+    }
+    
+
     pub fn interact(&mut self, caller: usize, callee: usize) -> Option<()> {
+        // println!("BEGIN INTERACTION");
 
-        let is_first_interaction = !self.urns.data[caller].actual_space.contains_key(&callee);
+        let is_first_interaction = if let Some(value) = self.urns.data[caller].actual_space.get(&callee) {
+            *value == 1
+        } else {
+            false
+        };
 
-        println!("BEFORE INTERACTION");
-        println!("Caller Agent {:?}", caller);
-        println!("Caller Actual Space: {:?}", self.urns.data[caller].actual_space);
-        println!("Caller Adjacent Possible Space: {:?}", self.urns.data[caller].adjacent_possible_space);
-        println!("Caller Memory Buffer: {:?}", self.urns.data[caller].memory_buffer);
 
-        println!("Callee Agent {:?}", callee);
-        println!("Callee Actual Space: {:?}", self.urns.data[callee].actual_space);
-        println!("Callee Adjacent Possible Space: {:?}", self.urns.data[callee].adjacent_possible_space);
-        println!("Callee Memory Buffer: {:?}", self.urns.data[callee].memory_buffer);
+        // println!("BEFORE INTERACTION");
+
+        // println!("First Interaction ? {:?}", is_first_interaction);
+
+
+        // println!("Caller Agent {:?}", caller);
+        // println!("Caller Actual Space: {:?}", self.urns.data[caller].actual_space);
+        // println!("Caller Adjacent Possible Space: {:?}", self.urns.data[caller].adjacent_possible_space);
+        // println!("Caller Memory Buffer: {:?}", self.urns.data[caller].memory_buffer);
+
+        // println!("Callee Agent {:?}", callee);
+        // println!("Callee Actual Space: {:?}", self.urns.data[callee].actual_space);
+        // println!("Callee Adjacent Possible Space: {:?}", self.urns.data[callee].adjacent_possible_space);
+        // println!("Callee Memory Buffer: {:?}", self.urns.data[callee].memory_buffer);
         self.history.push((caller, callee));
 
         if !self.urns.data[callee].interacted {
+            // println!("CALLEE NOT SELECTED BEFORE");
+            // println!("INITIALISTING MEMORY BUFFER");
+
             self.add_novelty(callee);
             self.urns.data[callee].interacted = true;
         }
+        // println!("Callee Memory Buffer AFTER: {:?}", self.urns.data[callee].memory_buffer);
+        // println!("Callee Actual Space AFTER: {:?}", self.urns.data[callee].actual_space);
+
 
         if is_first_interaction {
             // the callee gets moved the caller agents actual space
@@ -267,8 +299,12 @@ impl Environment {
             self.urns.actualise_agent(callee, caller);
 
             // exchange memory buffer
-            self.urns.add_many_to_adjacent_possible_space(caller, (*self.urns.data[callee].memory_buffer).to_vec());
-            self.urns.add_many_to_adjacent_possible_space(callee, (*self.urns.data[caller].memory_buffer).to_vec());
+
+            //todo: must not add itself to the urn
+            //todo: must be places in either the adjacent possible or actual
+
+            self.exchange_memory_buffer(caller, callee);
+            self.exchange_memory_buffer(callee, caller);      
         }
 
         // ρ個の交換(毎回実行)
@@ -288,16 +324,16 @@ impl Environment {
         // Update the callee memory buffer
         self.urns.data[callee].memory_buffer = self.get_recommendees(callee, caller).unwrap();
 
-        println!("AFTER INTERACTION");
-        println!("Caller Agent {:?}", caller);
-        println!("Caller Actual Space: {:?}", self.urns.data[caller].actual_space);
-        println!("Caller Adjacent Possible Space: {:?}", self.urns.data[caller].adjacent_possible_space);
-        println!("Caller Memory Buffer: {:?}", self.urns.data[caller].memory_buffer);
+        // println!("AFTER INTERACTION");
+        // println!("Caller Agent {:?}", caller);
+        // println!("Caller Actual Space: {:?}", self.urns.data[caller].actual_space);
+        // println!("Caller Adjacent Possible Space: {:?}", self.urns.data[caller].adjacent_possible_space);
+        // println!("Caller Memory Buffer: {:?}", self.urns.data[caller].memory_buffer);
 
-        println!("Callee Agent {:?}", callee);
-        println!("Callee Actual Space: {:?}", self.urns.data[callee].actual_space);
-        println!("Callee Adjacent Possible Space: {:?}", self.urns.data[callee].adjacent_possible_space);
-        println!("Callee Memory Buffer: {:?}", self.urns.data[callee].memory_buffer);
+        // println!("Callee Agent {:?}", callee);
+        // println!("Callee Actual Space: {:?}", self.urns.data[callee].actual_space);
+        // println!("Callee Adjacent Possible Space: {:?}", self.urns.data[callee].adjacent_possible_space);
+        // println!("Callee Memory Buffer: {:?}", self.urns.data[callee].memory_buffer);
 
         Some(())
     }
@@ -343,7 +379,7 @@ impl Environment {
         }
 
         let candidates: Vec<usize> = weights_map.keys().copied().collect();
-        println!("Recommendation Candidates: {:?}", candidates);
+        // println!("Recommendation Candidates: {:?}", candidates);
 
         let mut weights = Vec::from_iter(weights_map.values().cloned());
 
@@ -362,12 +398,14 @@ impl Environment {
     }
 
     fn add_novelty(&mut self, agent_id: usize) {
+        let mut memory_buffer: Vec<usize> = Vec::new();
         for _ in 0..(self.gene.nu + 1) {
-            let i = self.urns.create_new_agent();
-            self.urns.add_to_actual_space(agent_id, i);
-            self.urns.add_to_actual_space(i, agent_id);
+            let i = self.urns.create_new_agent(Some(agent_id));
+            memory_buffer.push(i);
+
             self.recentnesses.push(FxHashMap::default());
         }
+        self.urns.data[agent_id].memory_buffer = memory_buffer;
     }
 }
 
