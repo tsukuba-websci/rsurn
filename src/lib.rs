@@ -69,6 +69,7 @@ pub struct Agent {
     pub interacted: bool,
     pub actual_space: FxHashMap<usize, usize>,
     pub adjacent_possible_space: FxHashMap<usize, usize>,
+    pub memory_buffer: Vec<usize>,
     pub total_interactions: usize, // number of interactions
     pub unique_interactions: usize, // degree of node
     pub gene: AgentGene,
@@ -83,6 +84,7 @@ impl Agent {
             interacted: false,
             actual_space: FxHashMap::default(),
             adjacent_possible_space: FxHashMap::default(),
+            memory_buffer: Vec::new(),
             total_interactions: usize::default(),
             unique_interactions: usize::default(),
             gene: AgentGene::new(),
@@ -171,18 +173,23 @@ impl Environment {
         let mut urns = Urns::new();
 
         urns.create_new_agent();
-        urns.add_to_actual_space(0, 1);
+        urns.add_to_adjacent_possible_space(0, 1);
         urns.data[0].interacted = true;
         urns.create_new_agent();
-        urns.add_to_actual_space(1, 0);
+        urns.add_to_adjacent_possible_space(1, 0);
         urns.data[1].interacted = true;
 
 
-        for agent_id in [0, 1] {
+        for &agent_id in &[0, 1] {
+            let mut memory_buffer: Vec<usize> = Vec::new(); // Initialize an empty vector
+        
             for _ in 0..(gene.nu + 1) {
-                let i = urns.create_new_agent(); // new empty urns are added
+                let i: usize = urns.create_new_agent(); 
                 urns.add_to_actual_space(agent_id, i);
+                memory_buffer.push(i);
             }
+        
+            urns.data[agent_id].memory_buffer = memory_buffer;
         }
 
         let mut candidates = FxHashMap::default();
@@ -208,6 +215,7 @@ impl Environment {
 
         let caller_candidates: Vec<Agent> = self.urns.data.clone().into_iter().filter(|agent| !agent.actual_space.is_empty()).collect();
         let caller: usize = caller_candidates.choose(&mut rng).unwrap().id;
+
         Ok(caller)
     
     }
@@ -229,7 +237,6 @@ impl Environment {
         let callee = WeightedIndex::new(weights)
             .map(|dist: WeightedIndex<usize>| dist.sample(&mut rng))
             .map(|i| candidates[i])?;
-
         Ok(callee)
     }
 
@@ -237,6 +244,16 @@ impl Environment {
 
         let is_first_interaction = !self.urns.data[caller].actual_space.contains_key(&callee);
 
+        println!("BEFORE INTERACTION");
+        println!("Caller Agent {:?}", caller);
+        println!("Caller Actual Space: {:?}", self.urns.data[caller].actual_space);
+        println!("Caller Adjacent Possible Space: {:?}", self.urns.data[caller].adjacent_possible_space);
+        println!("Caller Memory Buffer: {:?}", self.urns.data[caller].memory_buffer);
+
+        println!("Callee Agent {:?}", callee);
+        println!("Callee Actual Space: {:?}", self.urns.data[callee].actual_space);
+        println!("Callee Adjacent Possible Space: {:?}", self.urns.data[callee].adjacent_possible_space);
+        println!("Callee Memory Buffer: {:?}", self.urns.data[callee].memory_buffer);
         self.history.push((caller, callee));
 
         if !self.urns.data[callee].interacted {
@@ -245,30 +262,42 @@ impl Environment {
         }
 
         if is_first_interaction {
-
             // the callee gets moved the caller agents actual space
             self.urns.actualise_agent(caller, callee);
             self.urns.actualise_agent(callee, caller);
 
-            let caller_recommendees = self.get_recommendees(caller, callee).unwrap();
-            let callee_recommendees = self.get_recommendees(callee, caller).unwrap();
-
-            self.urns.add_many_to_adjacent_possible_space(caller, callee_recommendees);
-            self.urns.add_many_to_adjacent_possible_space(callee, caller_recommendees);
+            // exchange memory buffer
+            self.urns.add_many_to_adjacent_possible_space(caller, (*self.urns.data[callee].memory_buffer).to_vec());
+            self.urns.add_many_to_adjacent_possible_space(callee, (*self.urns.data[caller].memory_buffer).to_vec());
         }
 
-        // ρ個の交換(毎回実行) REINFORCEMENT
+        // ρ個の交換(毎回実行)
+        // Reinforcement
         *self.urns.data[caller].actual_space.entry(callee).or_insert(0) += self.gene.rho;
         *self.urns.data[callee].actual_space.entry(caller).or_insert(0) += self.gene.rho;
 
-        if self.gene.symmetry < -0.3 {
-            *self.recentnesses[caller].entry(callee).or_insert(0) += 1;
-        } else if self.gene.symmetry > 0.3 {
-            *self.recentnesses[callee].entry(caller).or_insert(0) += 1;
-        } else {
-            *self.recentnesses[caller].entry(callee).or_insert(0) += 1;
-            *self.recentnesses[callee].entry(caller).or_insert(0) += 1;
-        }
+        *self.recentnesses[caller].entry(callee).or_insert(0) += 1;
+        *self.recentnesses[callee].entry(caller).or_insert(0) += 1;
+
+
+        // todo: Put some symmetry logic here
+
+        // Update caller memory buffer
+        self.urns.data[caller].memory_buffer = self.get_recommendees(caller, callee).unwrap();
+
+        // Update the callee memory buffer
+        self.urns.data[callee].memory_buffer = self.get_recommendees(callee, caller).unwrap();
+
+        println!("AFTER INTERACTION");
+        println!("Caller Agent {:?}", caller);
+        println!("Caller Actual Space: {:?}", self.urns.data[caller].actual_space);
+        println!("Caller Adjacent Possible Space: {:?}", self.urns.data[caller].adjacent_possible_space);
+        println!("Caller Memory Buffer: {:?}", self.urns.data[caller].memory_buffer);
+
+        println!("Callee Agent {:?}", callee);
+        println!("Callee Actual Space: {:?}", self.urns.data[callee].actual_space);
+        println!("Callee Adjacent Possible Space: {:?}", self.urns.data[callee].adjacent_possible_space);
+        println!("Callee Memory Buffer: {:?}", self.urns.data[callee].memory_buffer);
 
         Some(())
     }
@@ -314,6 +343,8 @@ impl Environment {
         }
 
         let candidates: Vec<usize> = weights_map.keys().copied().collect();
+        println!("Recommendation Candidates: {:?}", candidates);
+
         let mut weights = Vec::from_iter(weights_map.values().cloned());
 
         for _ in 0..(self.gene.nu + 1) {
