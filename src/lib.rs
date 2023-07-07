@@ -196,11 +196,23 @@ impl Environment {
     }
 
     pub fn get_caller(&self) -> Result<usize, ProcessingError> {
-        let mut rng = rand::thread_rng();
 
         let caller_candidates: Vec<Agent> = self.urns.clone().into_iter().filter(|agent| agent.interacted).collect();
-        let caller: usize = caller_candidates.choose(&mut rng).unwrap().id;
 
+        let caller_candidates_map: FxHashMap<_, _> = caller_candidates.into_iter().fold(FxHashMap::default(), |mut acc, agent| {
+            let total_space = agent.actual_space.iter().fold(0, |sum, (_, &num)| sum + num) +
+                agent.adjacent_possible_space.iter().fold(0, |sum, (_, &num)| sum + num);
+            acc.insert(agent.id, total_space);
+            acc
+        });
+        
+        let mut rng = thread_rng();
+        let weights: Vec<_> = caller_candidates_map.values().cloned().collect();
+        let agent_ids: Vec<_> = caller_candidates_map.keys().cloned().collect();
+        
+        let dist = WeightedIndex::new(&weights).unwrap();
+        let caller = agent_ids[dist.sample(&mut rng)];
+        
         Ok(caller)
     
     }
@@ -287,6 +299,7 @@ impl Environment {
             self.urns[caller].memory_buffer = self.calculate_memory_buffer(caller, callee).unwrap();
             self.urns[callee].memory_buffer = self.calculate_memory_buffer(callee, caller).unwrap();
         }
+
         Some(())
     }
 
@@ -331,7 +344,6 @@ impl Environment {
         }
 
         let candidates: Vec<usize> = weights_map.keys().copied().collect();
-        // println!("Recommendation Candidates: {:?}", candidates);
 
         let mut weights = Vec::from_iter(weights_map.values().cloned());
 
