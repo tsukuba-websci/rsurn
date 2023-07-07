@@ -49,7 +49,6 @@ impl Urns {
     pub fn add_to_adjacent_possible_space(&mut self, target_agent_id: usize, added_agent_id: usize) {
         assert_ne!(target_agent_id, added_agent_id);
 
-        // update the all the interactions of agent
         *self.data[target_agent_id].adjacent_possible_space
             .entry(added_agent_id)
             .or_insert(0) += 1;
@@ -244,16 +243,24 @@ impl Environment {
     }
 
     pub fn exchange_memory_buffer(&mut self, caller: usize, callee: usize) {
-        self.urns.add_many_to_adjacent_possible_space(caller, {
+        let filtered_memory_buffer = {
             let callee_memory_buffer = &self.urns.data[callee].memory_buffer;
-            let filtered_memory_buffer = callee_memory_buffer
+            callee_memory_buffer
                 .iter()
                 .filter(|&value| *value != caller)
                 .cloned()
-                .collect::<Vec<_>>();
-            filtered_memory_buffer
-        });
+                .collect::<Vec<_>>()
+        };
+    
+        for &agent_id in &filtered_memory_buffer {
+            if self.urns.data[caller].actual_space.contains_key(&agent_id) {
+                *self.urns.data[caller].actual_space.entry(agent_id).or_insert(0) += 1;
+            } else {
+                *self.urns.data[caller].adjacent_possible_space.entry(agent_id).or_insert(0) += 1;
+            }
+        }
     }
+    
     
 
     pub fn interact(&mut self, caller: usize, callee: usize) -> Option<()> {
@@ -266,32 +273,12 @@ impl Environment {
         };
 
 
-        // println!("BEFORE INTERACTION");
-
-        // println!("First Interaction ? {:?}", is_first_interaction);
-
-
-        // println!("Caller Agent {:?}", caller);
-        // println!("Caller Actual Space: {:?}", self.urns.data[caller].actual_space);
-        // println!("Caller Adjacent Possible Space: {:?}", self.urns.data[caller].adjacent_possible_space);
-        // println!("Caller Memory Buffer: {:?}", self.urns.data[caller].memory_buffer);
-
-        // println!("Callee Agent {:?}", callee);
-        // println!("Callee Actual Space: {:?}", self.urns.data[callee].actual_space);
-        // println!("Callee Adjacent Possible Space: {:?}", self.urns.data[callee].adjacent_possible_space);
-        // println!("Callee Memory Buffer: {:?}", self.urns.data[callee].memory_buffer);
         self.history.push((caller, callee));
 
         if !self.urns.data[callee].interacted {
-            // println!("CALLEE NOT SELECTED BEFORE");
-            // println!("INITIALISTING MEMORY BUFFER");
-
             self.add_novelty(callee);
             self.urns.data[callee].interacted = true;
         }
-        // println!("Callee Memory Buffer AFTER: {:?}", self.urns.data[callee].memory_buffer);
-        // println!("Callee Actual Space AFTER: {:?}", self.urns.data[callee].actual_space);
-
 
         if is_first_interaction {
             // the callee gets moved the caller agents actual space
@@ -299,10 +286,6 @@ impl Environment {
             self.urns.actualise_agent(callee, caller);
 
             // exchange memory buffer
-
-            //todo: must not add itself to the urn
-            //todo: must be places in either the adjacent possible or actual
-
             self.exchange_memory_buffer(caller, callee);
             self.exchange_memory_buffer(callee, caller);      
         }
@@ -323,17 +306,6 @@ impl Environment {
 
         // Update the callee memory buffer
         self.urns.data[callee].memory_buffer = self.get_recommendees(callee, caller).unwrap();
-
-        // println!("AFTER INTERACTION");
-        // println!("Caller Agent {:?}", caller);
-        // println!("Caller Actual Space: {:?}", self.urns.data[caller].actual_space);
-        // println!("Caller Adjacent Possible Space: {:?}", self.urns.data[caller].adjacent_possible_space);
-        // println!("Caller Memory Buffer: {:?}", self.urns.data[caller].memory_buffer);
-
-        // println!("Callee Agent {:?}", callee);
-        // println!("Callee Actual Space: {:?}", self.urns.data[callee].actual_space);
-        // println!("Callee Adjacent Possible Space: {:?}", self.urns.data[callee].adjacent_possible_space);
-        // println!("Callee Memory Buffer: {:?}", self.urns.data[callee].memory_buffer);
 
         Some(())
     }
