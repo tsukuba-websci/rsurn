@@ -92,20 +92,13 @@ impl EnvironmentGene {
 #[derive(Debug, Clone)]
 #[pyclass]
 pub struct AgentGene {
-    pub immediacy: f64,
-    pub longevity: f64,
-    pub fitness: f64,
 }
 
 #[pymethods]
 impl AgentGene {
     #[new]
     fn new() -> Self {
-        let mut rng = thread_rng();
         Self {
-            immediacy: rng.gen_range(0.1..=0.9),
-            longevity: rng.gen_range(0.1..=0.9),
-            fitness: rng.gen_range(10.0..=100.0)
         }
     }
 }
