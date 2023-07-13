@@ -2,7 +2,6 @@ use fxhash::FxHashMap;
 use pyo3::{exceptions::PyValueError, prelude::*};
 use rand::prelude::*;
 use rand_distr::{WeightedError, WeightedIndex};
-use rand::Rng;
 
 #[derive(Debug, Clone)]
 #[pyclass]
