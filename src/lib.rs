@@ -121,7 +121,7 @@ impl Environment {
         }
 
         Environment {
-            history: vec![],
+            history: vec![(0,1)],
             gene,
             urns,
             weights: candidates,
