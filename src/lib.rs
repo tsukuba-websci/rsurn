@@ -3,57 +3,15 @@ use pyo3::{exceptions::PyValueError, prelude::*};
 use rand::prelude::*;
 use rand_distr::{WeightedError, WeightedIndex};
 
-#[derive(Debug)]
-#[pyclass]
-pub struct Urns {
-    pub data: Vec<Agent>,
-}
-
-impl Urns {
-    // function to create empty urns
-    pub fn new() -> Self {
-        return Self { data: vec![] };
-    }
-
-    pub fn add_urn(&mut self) -> usize {
-        self.data.push(Agent::new());
-        let x = self.data.len() - 1;
-        self.data[x].id = x;
-        self.data.len() - 1
-    }
-
-    pub fn add(&mut self, target_agent_id: usize, added_agent_id: usize) {
-        assert_ne!(target_agent_id, added_agent_id);
-
-        // update the all the interactions of agent
-        *self.data[target_agent_id].interactions
-            .entry(added_agent_id)
-            .or_insert(0) += 1;
-
-        // update the total number of interactions
-        self.data[target_agent_id].total_interactions += 1;
-
-        // update the unique number of interactions
-        self.data[target_agent_id].unique_interactions = self.data[target_agent_id].interactions.len();
-    }
-
-    pub fn add_many(&mut self, target_agent_id: usize, added_agent_ids: Vec<usize>) {
-        for agent_id in added_agent_ids {
-            self.add(target_agent_id, agent_id);
-        }
-    }
-
-    pub fn get(&self, agent_id: usize) -> Option<&Agent> {
-        self.data.get(agent_id)
-    }
-}
-
 #[derive(Debug, Clone)]
 #[pyclass]
 pub struct Agent {
     pub id: usize,
-    pub interactions: FxHashMap<usize, usize>,
-    pub total_interactions: usize, // number of interactions/ selections
+    pub interacted: bool,
+    pub actual_space: FxHashMap<usize, usize>,
+    pub adjacent_possible_space: FxHashMap<usize, usize>,
+    pub memory_buffer: Vec<usize>,
+    pub total_interactions: usize, // number of interactions
     pub unique_interactions: usize, // degree of node
     pub gene: AgentGene,
 }
@@ -64,12 +22,46 @@ impl Agent {
     fn new() -> Self {
         return Self {
             id: usize::default(),
-            interactions: FxHashMap::default(),
+            interacted: false,
+            actual_space: FxHashMap::default(),
+            adjacent_possible_space: FxHashMap::default(),
+            memory_buffer: Vec::new(),
             total_interactions: usize::default(),
             unique_interactions: usize::default(),
             gene: AgentGene::new(),
         };
     }
+
+    pub fn add_to_actual_space(&mut self, added_agent_id: usize) {
+        assert_ne!(self.id, added_agent_id);
+        *self.actual_space
+            .entry(added_agent_id)
+            .or_insert(0) += 1;
+
+        self.total_interactions += 1;
+        self.unique_interactions = self.actual_space.len();
+    }
+
+    pub fn add_to_adjacent_possible_space(&mut self, added_agent_id: usize) {
+        assert_ne!(self.id, added_agent_id);
+        *self.adjacent_possible_space
+            .entry(added_agent_id)
+            .or_insert(0) += 1;
+    }
+
+    pub fn actualise_agent(&mut self, added_agent_id: usize) {
+        assert_ne!(self.id, added_agent_id);
+        if let Some((key, value)) = self.adjacent_possible_space.remove_entry(&added_agent_id) {
+            self.actual_space.insert(key, value);
+        }
+    }
+
+    pub fn add_many_to_adjacent_possible_space(&mut self, added_agent_ids: Vec<usize>) {
+        for agent_id in added_agent_ids {
+            self.add_to_adjacent_possible_space(agent_id);
+        }
+    }
+    
 }
 
 #[derive(Debug, Clone)]
@@ -79,17 +71,19 @@ pub struct EnvironmentGene {
     pub nu: usize,
     pub recentness: f64,
     pub friendship: f64,
+    pub symmetry: f64
 }
 
 #[pymethods]
 impl EnvironmentGene {
     #[new]
-    fn new(rho: usize, nu: usize, recentness: f64, friendship: f64) -> Self {
+    fn new(rho: usize, nu: usize, recentness: f64, friendship: f64, symmetry: f64) -> Self {
         Self {
             rho,
             nu,
             recentness,
             friendship,
+            symmetry,
         }
     }
 }
@@ -97,20 +91,13 @@ impl EnvironmentGene {
 #[derive(Debug, Clone)]
 #[pyclass]
 pub struct AgentGene {
-    pub immediacy: f64,
-    pub longevity: f64,
-    pub fitness: f64,
 }
 
 #[pymethods]
 impl AgentGene {
     #[new]
     fn new() -> Self {
-        let mut rng = thread_rng();
         Self {
-            immediacy: rng.gen_range(0.1..=0.9),
-            longevity: rng.gen_range(0.1..=0.9),
-            fitness: rng.gen_range(10.0..=100.0)
         }
     }
 }
@@ -119,10 +106,7 @@ impl AgentGene {
 #[pyclass]
 pub struct Environment {
     gene: EnvironmentGene,
-    pub urns: Urns,
-
-    /** callerとして選択される可能性のあるエージェント群の (agent_id, weight) の組 */
-    pub weights: FxHashMap<usize, usize>,
+    pub urns: Vec<Agent>,
 
     /** 最近度 */
     recentnesses: Vec<FxHashMap<usize, usize>>,
@@ -151,63 +135,78 @@ pub struct ProcessingError(WeightedError);
 impl Environment {
     #[new]
     pub fn new(gene: EnvironmentGene) -> Self {
-        let mut urns = Urns::new();
 
-        urns.add_urn();
-        urns.add(0, 1);
-        urns.add_urn();
-        urns.add(1, 0);
+        let mut env = Environment {
+            history: vec![],
+            gene,
+            urns: vec![],
+            recentnesses: vec![],
+        };
 
-        for agent_id in [0, 1] {
-            for _ in 0..(gene.nu + 1) {
-                let i = urns.add_urn();
-                urns.add(agent_id, i);
+        env.create_new_agent(None);
+        env.urns[0].add_to_actual_space(1);
+        env.urns[0].interacted = true;
+
+        env.create_new_agent(None);
+        env.urns[1].add_to_actual_space(0);
+        env.urns[1].interacted = true;
+
+        for &agent_id in &[0, 1] {
+            let mut memory_buffer: Vec<usize> = Vec::new(); // Initialize an empty vector
+        
+            for _ in 0..(env.gene.nu + 1) {
+                let i: usize = env.create_new_agent(Some(agent_id));
+                memory_buffer.push(i);
             }
+        
+            env.urns[agent_id].memory_buffer = memory_buffer;
         }
 
         let mut candidates = FxHashMap::default();
-        for agent_id in [0, 1] {
-            candidates.insert(agent_id, gene.nu + 2);
+        for &agent_id in &[0, 1] {
+            candidates.insert(agent_id, env.gene.nu + 2);
         }
 
         let mut recentnesses = vec![];
-        for _ in 0..(2 + 2 * (gene.nu + 1)) {
+        for _ in 0..(2 + 2 * (env.gene.nu + 1)) {
             recentnesses.push(FxHashMap::default());
         }
 
-        Environment {
-            history: vec![],
-            gene,
-            urns,
-            weights: candidates,
-            recentnesses,
+        env.recentnesses = recentnesses;
+        env
+    }
+
+    pub fn create_new_agent(&mut self, created_by: Option<usize>) -> usize {
+        self.urns.push(Agent::new());
+        let new_agent_id = self.urns.len() - 1;
+        self.urns[new_agent_id].id = new_agent_id;
+        if let Some(created_by_id) = created_by {
+            self.urns[new_agent_id].add_to_actual_space(created_by_id);
+            self.urns[created_by_id].add_to_actual_space(new_agent_id);
         }
+        new_agent_id
     }
 
     pub fn get_caller(&self) -> Result<usize, ProcessingError> {
 
-        pub fn aging(time: f64, immediacy: f64, longevity: f64) -> f64 {
-            return ( 1.0 / ( (2.0 * std::f64::consts::PI).sqrt() * longevity * time ) ) * (- ((time - immediacy).ln().powi(2)) / (2.0 * longevity.powi(2))).exp();
-        }
+        let caller_candidates: Vec<Agent> = self.urns.clone().into_iter().filter(|agent| agent.interacted).collect();
 
+        let caller_candidates_map: FxHashMap<_, _> = caller_candidates.into_iter().fold(FxHashMap::default(), |mut acc, agent| {
+            let total_space = agent.actual_space.iter().fold(0, |sum, (_, &num)| sum + num) +
+                agent.adjacent_possible_space.iter().fold(0, |sum, (_, &num)| sum + num);
+            acc.insert(agent.id, total_space);
+            acc
+        });
+        
         let mut rng = thread_rng();
-        let time = self.history.len() as f64 + 1.0;
-
-        // filter so that only agents that have interacted in the past can be callers
-        let  caller_candidates: Vec<Agent> = self.urns.data.clone().into_iter().filter(|agent| !agent.interactions.is_empty()).collect();
-
-        // let mut probabilities: Vec<f64> = caller_candidates.clone().iter().map(|agent|  agent.gene.fitness * (agent.total_interactions as f64) * aging(time, agent.gene.immediacy, agent.gene.longevity) ).collect();
-        let mut probabilities: Vec<f64> = caller_candidates.clone().iter().map(|agent|  (agent.total_interactions as f64) * aging(time, agent.gene.immediacy, agent.gene.longevity) ).collect();
-
-        let min_probability = probabilities.iter().fold(f64::NAN, |m, v| v.min(m));
-        for p in probabilities.iter_mut() {
-            *p += min_probability.abs() + 10f64.powf(-10f64);
-        }
-
-        let caller = WeightedIndex::new(probabilities)
-            .map(|dist| self.weights.keys().nth(dist.sample(&mut rng)).unwrap())
-            .copied()?;
+        let weights: Vec<_> = caller_candidates_map.values().cloned().collect();
+        let agent_ids: Vec<_> = caller_candidates_map.keys().cloned().collect();
+        
+        let dist = WeightedIndex::new(&weights).unwrap();
+        let caller = agent_ids[dist.sample(&mut rng)];
+        
         Ok(caller)
+    
     }
 
     pub fn get_callee(&self, caller: usize) -> Result<usize, ProcessingError> {
@@ -215,50 +214,91 @@ impl Environment {
 
         let urn = self.urns.get(caller).unwrap();
 
-        let candidates: Vec<usize> = urn.interactions.keys().map(|v| v.to_owned()).collect();
-        let weights = urn.interactions.values().map(|v| v.to_owned());
-        let callee = WeightedIndex::new(weights)
-            .map(|dist| dist.sample(&mut rng))
-            .map(|i| candidates[i])?;
+        let mut callee_candidate_space: FxHashMap<usize, usize> = FxHashMap::default();
 
+        // Union the actual space and the adjacent possible space
+        callee_candidate_space.extend(&urn.actual_space);
+        callee_candidate_space.extend(&urn.adjacent_possible_space);
+
+        let candidates: Vec<usize> = callee_candidate_space.keys().map(|v| v.to_owned()).collect();
+
+        let weights = callee_candidate_space.values().map(|v| v.to_owned());
+        let callee = WeightedIndex::new(weights)
+            .map(|dist: WeightedIndex<usize>| dist.sample(&mut rng))
+            .map(|i| candidates[i])?;
         Ok(callee)
     }
 
-    pub fn interact(&mut self, caller: usize, callee: usize) -> Option<()> {
-        let is_first_interaction = !self.recentnesses[caller].contains_key(&callee);
-        self.history.push((caller, callee));
-        *self.recentnesses[caller].entry(callee).or_insert(0) += 1;
-        *self.recentnesses[callee].entry(caller).or_insert(0) += 1;
+    pub fn exchange_memory_buffer(&mut self, caller: usize, callee: usize) {
+        let filtered_memory_buffer = {
+            let callee_memory_buffer = &self.urns[callee].memory_buffer;
+            callee_memory_buffer
+                .iter()
+                .filter(|&value| *value != caller)
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+    
+        for &agent_id in &filtered_memory_buffer {
+            if self.urns[caller].actual_space.contains_key(&agent_id) {
+                *self.urns[caller].actual_space.entry(agent_id).or_insert(0) += 1;
+            } else {
+                *self.urns[caller].adjacent_possible_space.entry(agent_id).or_insert(0) += 1;
+            }
+        }
+    }
+    
+    
 
-        if !self.weights.contains_key(&callee) {
+    pub fn interact(&mut self, caller: usize, callee: usize) -> Option<()> {
+        let is_first_interaction = if let Some(value) = self.urns[caller].actual_space.get(&callee) {
+            *value == 1
+        } else {
+            false
+        };
+
+        self.history.push((caller, callee));
+
+        if !self.urns[callee].interacted {
             self.add_novelty(callee);
+            self.urns[callee].interacted = true;
+        }
+
+        if is_first_interaction {
+            // the callee gets moved the caller agents actual space
+            self.urns[caller].actualise_agent(callee);
+            self.urns[callee].actualise_agent(caller);
+
+            // exchange memory buffer
+            self.exchange_memory_buffer(caller, callee);
+            self.exchange_memory_buffer(callee, caller);      
         }
 
         // ρ個の交換(毎回実行)
-        *self.weights.entry(caller).or_insert(0) += self.gene.rho;
-        *self.weights.entry(callee).or_insert(0) += self.gene.rho;
+        // Reinforcement
+        *self.urns[caller].actual_space.entry(callee).or_insert(0) += self.gene.rho;
+        *self.urns[callee].actual_space.entry(caller).or_insert(0) += self.gene.rho;
 
-        self.urns.add_many(caller, vec![callee; self.gene.rho]);
-        self.urns.add_many(callee, vec![caller; self.gene.rho]);
+        *self.recentnesses[caller].entry(callee).or_insert(0) += 1;
+        *self.recentnesses[callee].entry(caller).or_insert(0) += 1;
 
-        if is_first_interaction {
-            let caller_recommendees = self.get_recommendees(caller, callee).unwrap();
-            let callee_recommendees = self.get_recommendees(callee, caller).unwrap();
+        if self.gene.symmetry < -0.3 {
+            self.urns[caller].memory_buffer = self.calculate_memory_buffer(caller, callee).unwrap();
+        } else if self.gene.symmetry > 0.3 {
+            self.urns[callee].memory_buffer = self.calculate_memory_buffer(callee, caller).unwrap();
 
-            self.urns.add_many(caller, callee_recommendees);
-            self.urns.add_many(callee, caller_recommendees);
-
-            *self.weights.entry(caller).or_insert(0) += self.gene.nu + 1;
-            *self.weights.entry(callee).or_insert(0) += self.gene.nu + 1;
+        } else {
+            self.urns[caller].memory_buffer = self.calculate_memory_buffer(caller, callee).unwrap();
+            self.urns[callee].memory_buffer = self.calculate_memory_buffer(callee, caller).unwrap();
         }
 
         Some(())
     }
 
-    fn get_recommendees(&self, me: usize, opponent: usize) -> Result<Vec<usize>, ProcessingError> {
+    fn calculate_memory_buffer(&self, me: usize, opponent: usize) -> Result<Vec<usize>, ProcessingError> {
         let mut rng = thread_rng();
         let mut ret = vec![];
-
+        
         let urn = self.urns.get(me).unwrap();
         let recentness = self.recentnesses.get(me).unwrap();
 
@@ -267,15 +307,17 @@ impl Environment {
         let mut recentness = recentness.clone();
 
         // 自分自身と相手自身を取り除く
-        urn.interactions.remove(&opponent);
-        urn.interactions.remove(&me);
+        urn.actual_space.remove(&opponent);
+        urn.actual_space.remove(&me);
         recentness.remove(&opponent);
         recentness.remove(&me);
 
         let mut weights_map = FxHashMap::default();
 
-        let max_friendship = urn.interactions.values().fold(f64::NAN, |m, v| (*v as f64).max(m));
-        for (agent, weight) in urn.interactions {
+        let max_friendship = urn.actual_space
+            .values()
+            .fold(f64::NAN, |m, v| (*v as f64).max(m));
+        for (agent, weight) in urn.actual_space {
             *weights_map.entry(agent).or_insert(0.0) +=
                 (weight as f64 / max_friendship) * self.gene.friendship;
         }
@@ -294,9 +336,11 @@ impl Environment {
         }
 
         let candidates: Vec<usize> = weights_map.keys().copied().collect();
+
         let mut weights = Vec::from_iter(weights_map.values().cloned());
 
         for _ in 0..(self.gene.nu + 1) {
+            // problem with the weights
             let dist = WeightedIndex::new(weights.clone())?;
 
             let i = dist.sample(&mut rng);
@@ -310,19 +354,21 @@ impl Environment {
     }
 
     fn add_novelty(&mut self, agent_id: usize) {
+        let mut memory_buffer: Vec<usize> = Vec::new();
         for _ in 0..(self.gene.nu + 1) {
-            let i = self.urns.add_urn();
-            self.urns.add(agent_id, i);
+            let i = self.create_new_agent(Some(agent_id));
+            memory_buffer.push(i);
+
             self.recentnesses.push(FxHashMap::default());
         }
-        *self.weights.entry(agent_id).or_insert(0) += self.gene.nu + 1;
+        self.urns[agent_id].memory_buffer = memory_buffer;
     }
 }
 
 /// A Python module implemented in Rust.
 #[pymodule]
 fn rsurn(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_class::<Urns>()?;
+    m.add_class::<Agent>()?;
     m.add_class::<EnvironmentGene>()?;
     m.add_class::<Environment>()?;
     Ok(())
@@ -341,6 +387,7 @@ mod test {
             nu: 4,
             recentness: 0.5,
             friendship: 0.5,
+            symmetry: 0.0,
         };
         let mut env = Environment::new(gene);
 
@@ -355,11 +402,12 @@ mod test {
 
     #[test]
     fn negative_friendship() {
-        let gene = EnviornmentGene {
+        let gene: EnvironmentGene = EnvironmentGene {
             rho: 3,
             nu: 4,
             recentness: 0.5,
             friendship: -0.5,
+            symmetry: 0.0,
         };
         let mut env = Environment::new(gene);
 
@@ -374,11 +422,12 @@ mod test {
 
     #[test]
     fn negative_recentness() {
-        let gene = EnviornmentGene {
+        let gene = EnvironmentGene {
             rho: 3,
             nu: 4,
             recentness: -0.5,
             friendship: 0.5,
+            symmetry: 0.0,
         };
         let mut env = Environment::new(gene);
 
@@ -393,11 +442,12 @@ mod test {
 
     #[test]
     fn zero_recentness() {
-        let gene = EnviornmentGene {
+        let gene = EnvironmentGene {
             rho: 3,
             nu: 4,
             recentness: 0.0,
             friendship: 0.5,
+            symmetry: 0.0,
         };
         let mut env = Environment::new(gene);
 
@@ -412,11 +462,12 @@ mod test {
 
     #[test]
     fn zero_friendship() {
-        let gene = Gene {
+        let gene = EnvironmentGene {
             rho: 3,
             nu: 4,
             recentness: 0.5,
             friendship: 0.0,
+            symmetry: 0.0,
         };
         let mut env = Environment::new(gene);
 
@@ -431,11 +482,12 @@ mod test {
 
     #[test]
     fn rho_greater_than_nu() {
-        let gene = EnviornmentGene {
+        let gene = EnvironmentGene {
             rho: 5,
             nu: 5,
             recentness: 1.0,
             friendship: 0.0,
+            symmetry: 0.0,
         };
         let mut env = Environment::new(gene);
 
@@ -450,11 +502,12 @@ mod test {
 
     #[test]
     fn nu_greater_than_rho() {
-        let gene = EnviornmentGene {
+        let gene = EnvironmentGene {
             rho: 1,
             nu: 20,
             recentness: 0.5,
             friendship: 0.0,
+            symmetry: 0.0,
         };
         let mut env = Environment::new(gene);
 
@@ -469,19 +522,20 @@ mod test {
 
     #[test]
     fn do_not_recommend_same_agents() {
-        let (rho, nu, recentness, friendship) = (5, 5, 1.0, 0.0);
-        let gene = EnviornmentGene {
+        let (rho, nu, recentness, friendship, symmetry) = (5, 5, 1.0, 0.0, 0.0);
+        let gene = EnvironmentGene {
             rho,
             nu,
             recentness,
             friendship,
+            symmetry
         };
         let mut env = Environment::new(gene);
 
         env.interact(1, 10);
         let (me, opponent) = (1, 11);
         env.add_novelty(opponent);
-        let recommendees = env.get_recommendees(me, opponent).unwrap();
+        let recommendees = env.calculate_memory_buffer(me, opponent).unwrap();
 
         let set: HashSet<usize> = HashSet::from_iter(recommendees.clone());
 

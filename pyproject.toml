@@ -1,10 +1,10 @@
 [tool.poetry]
-authors = ["SUDA Mikihiro <s@sudame.net>"]
-description = ""
 name = "rsurn"
+version = "0.3.2"
+description = ""
+authors = ["SUDA Mikihiro <s@sudame.net>"]
 packages = [{include = "rsurn"}]
 readme = "README.md"
-version = "0.3.0"
 
 [tool.poetry.dependencies]
 python = ">=3.8"
